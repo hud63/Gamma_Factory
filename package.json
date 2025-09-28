@@ -1,0 +1,34 @@
+{
+  "name": "gamma-business-runner",
+  "version": "1.0.0",
+  "description": "Gamma Business Use-Case Runner - Generate thorough runbooks for Gamma platform use cases",
+  "main": "gamma-runner.js",
+  "bin": {
+    "gamma-runner": "./gamma-runner.js"
+  },
+  "scripts": {
+    "start": "node gamma-runner.js",
+    "test": "node gamma-runner.js --help",
+    "example": "node gamma-runner.js \"Turn meeting notes into a presentation deck\""
+  },
+  "keywords": [
+    "gamma",
+    "ai",
+    "presentations",
+    "automation",
+    "runbook",
+    "generator"
+  ],
+  "author": "Gamma Factory",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "local"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2"
+  }
+}

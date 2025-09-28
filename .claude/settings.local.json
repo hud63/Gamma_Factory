@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude mcp list:*)",
+      "mcp__exa__web_search_exa",
+      "mcp__exa__linkedin_search_exa",
+      "mcp__exa__crawling_exa",
+      "mcp__exa__deep_researcher_start",
+      "mcp__exa__deep_researcher_check",
+      "Read(//c/Users/User/Downloads/General/**)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "perplexity-mcp"
+  ]
+}

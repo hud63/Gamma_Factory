@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "exa": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": ["/c", "node", "C:\\Users\\User\\AppData\\Roaming\\npm\\node_modules\\exa-mcp-server\\.smithery\\index.cjs"],
+      "env": {
+        "EXA_API_KEY": "93d677be-aafa-4548-ae12-08a4c3e65f78"
+      }
+    }
+  }
+}
