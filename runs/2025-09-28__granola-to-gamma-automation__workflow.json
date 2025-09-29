@@ -1,0 +1,467 @@
+{
+  "name": "Granola to Gamma Presentation Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "granola-webhook",
+        "options": {}
+      },
+      "id": "4b1c3f4e-8a2d-4e3f-9b1c-2d3e4f5a6b7c",
+      "name": "Granola Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "completed"
+            }
+          ]
+        }
+      },
+      "id": "5c2d4f5e-9b3e-5f4a-ac2d-3e4f5a6b7c8d",
+      "name": "Check Transcription Complete",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and validate meeting data\nconst webhookData = $input.first().json;\n\n// Validate required fields\nif (!webhookData.transcription || !webhookData.meetingTitle) {\n  throw new Error('Missing required fields: transcription or meetingTitle');\n}\n\n// Extract meeting metadata\nconst meetingData = {\n  transcription: webhookData.transcription,\n  title: webhookData.meetingTitle || 'Meeting Summary',\n  date: webhookData.meetingDate || new Date().toISOString().split('T')[0],\n  participants: webhookData.participants || [],\n  duration: webhookData.duration || 'Unknown',\n  // Clean transcription for presentation use\n  cleanedTranscription: webhookData.transcription\n    .replace(/\\b(um|uh|er|ah)\\b/gi, '')\n    .replace(/\\s+/g, ' ')\n    .trim()\n};\n\n// Add processing timestamp\nmeetingData.processedAt = new Date().toISOString();\n\nreturn meetingData;"
+      },
+      "id": "6d3e5f6a-ac4f-6a5b-bd3e-4f5a6b7c8d9e",
+      "name": "Extract Meeting Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "model": "gpt-4",
+        "messages": {
+          "messageType": "multipleMessages",
+          "messages": [
+            {
+              "role": "system",
+              "message": "You are an expert at converting meeting transcriptions into structured presentation content. Transform the provided meeting transcription into a clear, professional presentation outline suitable for Gamma presentation generation."
+            },
+            {
+              "role": "user",
+              "message": "Convert this meeting transcription into a presentation outline:\n\nTitle: {{ $json.title }}\nDate: {{ $json.date }}\nParticipants: {{ $json.participants.join(', ') }}\nTranscription: {{ $json.cleanedTranscription }}\n\nCreate a structured outline with:\n1. Executive Summary (key takeaways)\n2. Main Discussion Points (organized by topic)\n3. Decisions Made (clear action items)\n4. Next Steps (with owners and timelines)\n\nFormat as clear, presentation-ready content that removes conversational elements while preserving all important information."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 2000
+        }
+      },
+      "id": "7e4f6a7b-bd5a-7b6c-ce4f-5a6b7c8d9e0f",
+      "name": "Structure Content with AI",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        900,
+        200
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "requestMethod": "POST",
+        "url": "https://public-api.gamma.app/v0.2/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "{\n  \"inputText\": \"{{ $node['Structure Content with AI'].json.choices[0].message.content }}\",\n  \"textMode\": \"condense\",\n  \"format\": \"presentation\",\n  \"themeName\": \"Professional\",\n  \"numCards\": 8,\n  \"additionalInstructions\": \"Create a clean, professional presentation from meeting content. Focus on key decisions and action items. Use clear headings and bullet points.\",\n  \"textOptions\": {\n    \"amount\": \"concise\",\n    \"tone\": \"professional, clear\",\n    \"audience\": \"business stakeholders\",\n    \"language\": \"en\"\n  },\n  \"imageOptions\": {\n    \"source\": \"aiGenerated\",\n    \"model\": \"imagen-4-pro\",\n    \"style\": \"professional\"\n  },\n  \"exportAs\": \"pdf\"\n}",
+        "options": {}
+      },
+      "id": "8f5a7b8c-ce6b-8c7d-df5a-6b7c8d9e0a1b",
+      "name": "Create Gamma Presentation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1120,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gamma-api-credentials",
+          "name": "Gamma API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "requestMethod": "GET",
+        "url": "=https://public-api.gamma.app/v0.2/generations/{{ $json.generationId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9a6b8c9d-df7c-9d8e-ea6b-7c8d9e0a1b2c",
+      "name": "Check Generation Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1340,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gamma-api-credentials",
+          "name": "Gamma API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "operation": "equal",
+              "value2": "completed"
+            }
+          ]
+        }
+      },
+      "id": "ab7c9d0e-ea8d-0e9f-fb7c-8d9e0a1b2c3d",
+      "name": "Check If Complete",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "bc8d0e1f-fb9e-1f0a-ac8d-9e0a1b2c3d4e",
+      "name": "Wait 10 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $runIndex }}",
+              "operation": "smaller",
+              "value2": 12
+            }
+          ]
+        }
+      },
+      "id": "cd9e1f2a-ac0f-2a1b-bd9e-0a1b2c3d4e5f",
+      "name": "Max Retry Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "channel": "#notifications",
+        "text": "🎉 Presentation Successfully Created!\n\n**Meeting:** {{ $node['Extract Meeting Data'].json.title }}\n**Date:** {{ $node['Extract Meeting Data'].json.date }}\n**Presentation URL:** {{ $json.gammaUrl }}\n**Credits Used:** {{ $json.credits.deducted }}\n**Credits Remaining:** {{ $json.credits.remaining }}\n\n✅ Your meeting transcription has been converted into a professional presentation.",
+        "otherOptions": {},
+        "attachments": []
+      },
+      "id": "de0f2a3b-bd1a-3b2c-ce0f-1b2c3d4e5f6a",
+      "name": "Success Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        100
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credentials",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "#notifications",
+        "text": "❌ Presentation Generation Failed\n\n**Meeting:** {{ $node['Extract Meeting Data'].json.title }}\n**Error:** Generation timeout or failed\n**Timestamp:** {{ new Date().toISOString() }}\n\n🔄 The system attempted to generate a presentation from your Granola transcription but encountered an issue. Please check the meeting content and try again.",
+        "otherOptions": {},
+        "attachments": []
+      },
+      "id": "ef1a3b4c-ce2b-4c3d-df1a-2c3d4e5f6a7b",
+      "name": "Timeout Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [
+        900,
+        500
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credentials",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "#notifications",
+        "text": "⚠️ Processing Error\n\n**Meeting:** {{ $json.meetingTitle || 'Unknown' }}\n**Error:** {{ $json.error || 'Transcription not completed' }}\n**Timestamp:** {{ new Date().toISOString() }}\n\n❓ The meeting transcription from Granola could not be processed. Please ensure the meeting has completed transcription before triggering the workflow.",
+        "otherOptions": {},
+        "attachments": []
+      },
+      "id": "fa2b4c5d-df3c-5d4e-ea2b-3d4e5f6a7b8c",
+      "name": "Error Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [
+        460,
+        500
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "slack-credentials",
+          "name": "Slack API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store generation ID and initial request data for polling\nconst generationData = {\n  generationId: $json.generationId,\n  meetingTitle: $node['Extract Meeting Data'].json.title,\n  startTime: new Date().toISOString(),\n  attempt: 1\n};\n\nreturn generationData;"
+      },
+      "id": "ab3c5d6e-ea4d-6e5f-fb3c-4e5f6a7b8c9d",
+      "name": "Store Generation ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Increment attempt counter\nconst currentData = $input.first().json;\ncurrentData.attempt = (currentData.attempt || 0) + 1;\ncurrentData.lastChecked = new Date().toISOString();\n\nreturn currentData;"
+      },
+      "id": "bc4d6e7f-fb5e-7f6a-ac4d-5f6a7b8c9d0e",
+      "name": "Increment Attempt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Granola Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Transcription Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Transcription Complete": {
+      "main": [
+        [
+          {
+            "node": "Extract Meeting Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Meeting Data": {
+      "main": [
+        [
+          {
+            "node": "Structure Content with AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structure Content with AI": {
+      "main": [
+        [
+          {
+            "node": "Create Gamma Presentation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Gamma Presentation": {
+      "main": [
+        [
+          {
+            "node": "Store Generation ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Generation ID": {
+      "main": [
+        [
+          {
+            "node": "Check Generation Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Generation Status": {
+      "main": [
+        [
+          {
+            "node": "Check If Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Complete": {
+      "main": [
+        [
+          {
+            "node": "Success Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Max Retry Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Max Retry Check": {
+      "main": [
+        [
+          {
+            "node": "Increment Attempt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Timeout Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Increment Attempt": {
+      "main": [
+        [
+          {
+            "node": "Wait 10 Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Check Generation Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-09-28T00:00:00.000Z",
+      "updatedAt": "2025-09-28T00:00:00.000Z",
+      "id": "granola-automation",
+      "name": "Granola Automation"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-09-28T00:00:00.000Z",
+  "versionId": "1"
+}
