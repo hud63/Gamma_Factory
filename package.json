@@ -30,5 +30,8 @@
   },
   "dependencies": {
     "dotenv": "^17.2.2"
+  },
+  "devDependencies": {
+    "@openai/codex": "^0.44.0"
   }
 }

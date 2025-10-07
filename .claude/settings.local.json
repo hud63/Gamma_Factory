@@ -9,13 +9,16 @@
       "mcp__exa__deep_researcher_check",
       "mcp__exa__get_code_context_exa",
       "mcp__exa__company_research_exa",
-      "Read(//c/Users/User/Downloads/General/**)"
+      "Read(//c/Users/User/Downloads/General/**)",
+      "Bash(mkdir:*)",
+      "Bash(find:*)",
+      "Bash(awk:*)"
     ],
     "deny": [],
     "ask": []
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
-    "perplexity-mcp"
+    "exa"
   ]
 }

@@ -1,0 +1,446 @@
+{
+  "name": "Gamma PowerPoint Export Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gamma-trigger",
+        "options": {}
+      },
+      "id": "trigger-webhook",
+      "name": "Gamma Export Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [180, 300],
+      "webhookId": "gamma-pptx-export"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validate-input",
+              "leftValue": "={{ $json.inputText }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "input-validator",
+      "name": "Input Validator",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "url": "https://public-api.gamma.app/v0.2/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\n  \"inputText\": \"{{ $json.inputText }}\",\n  \"textMode\": \"{{ $json.textMode || 'generate' }}\",\n  \"format\": \"{{ $json.format || 'presentation' }}\",\n  \"themeName\": \"{{ $json.themeName || 'Oasis' }}\",\n  \"numCards\": {{ $json.numCards || 10 }},\n  \"cardSplit\": \"{{ $json.cardSplit || 'auto' }}\",\n  \"additionalInstructions\": \"{{ $json.additionalInstructions || '' }} Create content optimized for PowerPoint export with consistent formatting and clear visual hierarchy.\",\n  \"exportAs\": \"pptx\",\n  \"textOptions\": {\n    \"amount\": \"{{ $json.textOptions?.amount || 'detailed' }}\",\n    \"tone\": \"{{ $json.textOptions?.tone || 'professional' }}\",\n    \"audience\": \"{{ $json.textOptions?.audience || 'business professionals' }}\",\n    \"language\": \"{{ $json.textOptions?.language || 'en' }}\"\n  },\n  \"imageOptions\": {\n    \"source\": \"{{ $json.imageOptions?.source || 'aiGenerated' }}\",\n    \"model\": \"{{ $json.imageOptions?.model || 'imagen-4-pro' }}\",\n    \"style\": \"{{ $json.imageOptions?.style || 'photorealistic' }}\"\n  },\n  \"cardOptions\": {\n    \"dimensions\": \"{{ $json.cardOptions?.dimensions || 'fluid' }}\"\n  },\n  \"sharingOptions\": {\n    \"workspaceAccess\": \"{{ $json.sharingOptions?.workspaceAccess || 'view' }}\",\n    \"externalAccess\": \"{{ $json.sharingOptions?.externalAccess || 'noAccess' }}\"\n  }\n}",
+        "options": {
+          "timeout": 300000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3,
+            "waitBetween": 5000
+          }
+        }
+      },
+      "id": "gamma-api-request",
+      "name": "Generate Content via Gamma API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [600, 200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "url": "https://public-api.gamma.app/v0.2/generations/{{ $json.generationId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "status-checker",
+      "name": "Check Generation Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [800, 200],
+      "retryOnFail": true,
+      "maxTries": 10,
+      "waitBetweenTries": 15000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-status",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "status-validator",
+      "name": "Status Validator",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "url": "={{ $json.gammaUrl }}/export/pptx",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "pptx-downloader",
+      "name": "Download PowerPoint File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1200, 200]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "fileId": "={{ $json.data }}",
+        "fileName": "={{ $json.fileName || `gamma_export_${$now}.pptx` }}",
+        "googleDrive": {
+          "predefinedId": "google-drive-credentials"
+        }
+      },
+      "id": "google-drive-upload",
+      "name": "Upload to Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1400, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Quality validation for PowerPoint export\nconst inputData = $input.all()[0].json;\nconst validationResults = {\n  timestamp: new Date().toISOString(),\n  fileId: inputData.id || 'unknown',\n  fileName: inputData.name || 'unknown',\n  checks: {\n    fileExists: true,\n    fileSize: inputData.size || 0,\n    fileType: inputData.mimeType || 'unknown',\n    isPowerPoint: false,\n    qualityScore: 0\n  },\n  issues: [],\n  recommendations: []\n};\n\n// Check if it's a PowerPoint file\nif (inputData.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {\n  validationResults.checks.isPowerPoint = true;\n  validationResults.checks.qualityScore += 40;\n} else {\n  validationResults.issues.push('File type is not PowerPoint PPTX');\n}\n\n// Check file size (should be reasonable for presentations)\nif (inputData.size && inputData.size > 1000000) { // > 1MB\n  validationResults.checks.qualityScore += 30;\n} else if (inputData.size && inputData.size < 100000) { // < 100KB\n  validationResults.issues.push('File size seems too small for a complete presentation');\n  validationResults.recommendations.push('Verify that all content was exported properly');\n}\n\n// Additional validation checks would go here\n// In a real implementation, you might:\n// - Parse the PPTX file to check slide count\n// - Validate that images are embedded correctly\n// - Check for common formatting issues\n\nvalidationResults.checks.qualityScore = Math.min(validationResults.checks.qualityScore, 100);\n\nreturn { json: validationResults };"
+      },
+      "id": "quality-validator",
+      "name": "Quality Validator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1600, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "quality-check",
+              "leftValue": "={{ $json.checks.qualityScore }}",
+              "rightValue": 70,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "quality-gate",
+      "name": "Quality Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1800, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate comprehensive report\nconst validationData = $input.all()[0].json;\nconst originalRequest = $('Input Validator').all()[0].json;\nconst generationInfo = $('Generate Content via Gamma API').all()[0].json;\n\nconst report = {\n  summary: {\n    exportId: generationInfo.generationId,\n    timestamp: new Date().toISOString(),\n    status: validationData.checks.qualityScore >= 70 ? 'SUCCESS' : 'WARNING',\n    qualityScore: validationData.checks.qualityScore,\n    processingTime: $now - $json.startedAt\n  },\n  input: {\n    originalText: originalRequest.inputText?.substring(0, 100) + '...',\n    format: originalRequest.format,\n    themeName: originalRequest.themeName,\n    exportAs: originalRequest.exportAs\n  },\n  output: {\n    fileId: validationData.fileId,\n    fileName: validationData.fileName,\n    fileUrl: $json.webViewLink,\n    downloadUrl: $json.webContentLink\n  },\n  validation: validationData,\n  recommendations: validationData.recommendations,\n  nextSteps: [\n    'Review the exported PowerPoint file',\n    'Check for any formatting inconsistencies',\n    'Verify all images and media are present',\n    'Test animations and transitions if applicable'\n  ]\n};\n\nreturn { json: report };"
+      },
+      "id": "report-generator",
+      "name": "Generate Export Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "automations@company.com",
+        "toEmail": "={{ $json.notificationEmail || 'user@company.com' }}",
+        "subject": "PowerPoint Export {{ $json.summary.status }} - {{ $json.summary.exportId }}",
+        "text": "={{\n`PowerPoint Export ${$json.summary.status}\\n\\n` +\n`Export ID: ${$json.summary.exportId}\\n` +\n`Quality Score: ${$json.summary.qualityScore}/100\\n` +\n`Processing Time: ${$json.summary.processingTime}ms\\n\\n` +\n`File Details:\\n` +\n`- Name: ${$json.output.fileName}\\n` +\n`- Download: ${$json.output.downloadUrl}\\n\\n` +\n`Validation Issues:\\n` +\n`${$json.validation.issues.join('\\n') || 'None detected'}\\n\\n` +\n`Recommendations:\\n` +\n`${$json.recommendations.join('\\n') || 'No specific recommendations'}\\n\\n` +\n`Next Steps:\\n` +\n`${$json.nextSteps.join('\\n')}`\n}}",
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "email-notifier",
+      "name": "Send Email Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [2200, 200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "url": "={{ $json.webhookUrl }}",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "webhook-response",
+      "name": "Send Webhook Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2400, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "webhook-response-final",
+      "name": "Final Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2600, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"error\",\n  \"message\": \"Invalid input data. Please provide inputText in your request.\",\n  \"timestamp\": new Date().toISOString()\n}",
+        "options": {}
+      },
+      "id": "error-response-input",
+      "name": "Input Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [600, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"processing\",\n  \"message\": \"Generation is taking longer than expected. Please check back later.\",\n  \"generationId\": \"{{ $json.generationId }}\",\n  \"timestamp\": new Date().toISOString()\n}",
+        "options": {}
+      },
+      "id": "error-response-status",
+      "name": "Status Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"warning\",\n  \"message\": \"Export completed but quality issues were detected. Please review the file.\",\n  \"report\": \"{{ $json }}\",\n  \"timestamp\": new Date().toISOString()\n}",
+        "options": {}
+      },
+      "id": "warning-response",
+      "name": "Quality Warning Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, 400]
+    }
+  ],
+  "connections": {
+    "Gamma Export Trigger": {
+      "main": [
+        [
+          {
+            "node": "Input Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Validator": {
+      "main": [
+        [
+          {
+            "node": "Generate Content via Gamma API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Input Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Content via Gamma API": {
+      "main": [
+        [
+          {
+            "node": "Check Generation Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Generation Status": {
+      "main": [
+        [
+          {
+            "node": "Status Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Validator": {
+      "main": [
+        [
+          {
+            "node": "Download PowerPoint File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Status Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download PowerPoint File": {
+      "main": [
+        [
+          {
+            "node": "Upload to Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Google Drive": {
+      "main": [
+        [
+          {
+            "node": "Quality Validator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quality Validator": {
+      "main": [
+        [
+          {
+            "node": "Quality Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quality Gate": {
+      "main": [
+        [
+          {
+            "node": "Generate Export Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Quality Warning Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Export Report": {
+      "main": [
+        [
+          {
+            "node": "Send Email Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email Notification": {
+      "main": [
+        [
+          {
+            "node": "Send Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Webhook Response": {
+      "main": [
+        [
+          {
+            "node": "Final Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "errorWorkflow": "gamma-powerpoint-error-handler"
+  },
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "gamma-automation",
+      "name": "Gamma Automation"
+    }
+  ]
+}

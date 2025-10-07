@@ -1,0 +1,253 @@
+{
+  "name": "Gamma PowerPoint Export Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [180, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Analyze and categorize the error\nconst errorData = $input.all()[0].json;\nconst error = errorData.execution.error;\n\nconst errorAnalysis = {\n  errorId: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,\n  timestamp: new Date().toISOString(),\n  workflow: {\n    id: errorData.workflow.id,\n    name: errorData.workflow.name\n  },\n  execution: {\n    id: errorData.execution.id,\n    url: errorData.execution.url,\n    mode: errorData.execution.mode\n  },\n  error: {\n    message: error.message,\n    stack: error.stack,\n    node: errorData.execution.lastNodeExecuted,\n    type: categorizeError(error.message),\n    severity: determineSeverity(error.message),\n    isRetryable: isRetryableError(error.message)\n  },\n  context: extractContext(errorData),\n  recommendations: generateRecommendations(error.message)\n};\n\nfunction categorizeError(message) {\n  if (message.includes('timeout') || message.includes('TIMEOUT')) return 'TIMEOUT';\n  if (message.includes('authentication') || message.includes('401') || message.includes('403')) return 'AUTHENTICATION';\n  if (message.includes('rate') || message.includes('429')) return 'RATE_LIMIT';\n  if (message.includes('validation') || message.includes('400')) return 'VALIDATION';\n  if (message.includes('network') || message.includes('ENOTFOUND')) return 'NETWORK';\n  if (message.includes('file') || message.includes('download')) return 'FILE_SYSTEM';\n  return 'UNKNOWN';\n}\n\nfunction determineSeverity(message) {\n  if (message.includes('authentication') || message.includes('401')) return 'CRITICAL';\n  if (message.includes('rate') || message.includes('429')) return 'HIGH';\n  if (message.includes('timeout')) return 'MEDIUM';\n  if (message.includes('validation')) return 'MEDIUM';\n  return 'LOW';\n}\n\nfunction isRetryableError(message) {\n  const retryableErrors = ['timeout', 'network', 'rate', 'ENOTFOUND', '502', '503', '504'];\n  return retryableErrors.some(error => message.toLowerCase().includes(error));\n}\n\nfunction extractContext(errorData) {\n  const context = {};\n  try {\n    if (errorData.execution && errorData.execution.mode) {\n      context.executionMode = errorData.execution.mode;\n    }\n    if (errorData.workflow && errorData.workflow.name) {\n      context.workflowName = errorData.workflow.name;\n    }\n  } catch (e) {\n    context.extractionError = e.message;\n  }\n  return context;\n}\n\nfunction generateRecommendations(message) {\n  const recommendations = [];\n  \n  if (message.includes('timeout')) {\n    recommendations.push('Consider increasing timeout values for API requests');\n    recommendations.push('Check if Gamma API is experiencing delays');\n  }\n  \n  if (message.includes('authentication') || message.includes('401')) {\n    recommendations.push('Verify Gamma API key is valid and has not expired');\n    recommendations.push('Check API key permissions for generation and export');\n  }\n  \n  if (message.includes('rate') || message.includes('429')) {\n    recommendations.push('Implement exponential backoff for retries');\n    recommendations.push('Check API quota usage and consider upgrading plan');\n  }\n  \n  if (message.includes('validation')) {\n    recommendations.push('Review input parameters for Gamma API request');\n    recommendations.push('Ensure all required fields are present and valid');\n  }\n  \n  if (message.includes('file') || message.includes('download')) {\n    recommendations.push('Verify file permissions and storage space');\n    recommendations.push('Check if PowerPoint export is available for this content type');\n  }\n  \n  if (recommendations.length === 0) {\n    recommendations.push('Review the error details and workflow configuration');\n    recommendations.push('Contact support if the issue persists');\n  }\n  \n  return recommendations;\n}\n\nreturn { json: errorAnalysis };"
+      },
+      "id": "error-analyzer",
+      "name": "Error Analyzer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "retryable-check",
+              "leftValue": "={{ $json.error.isRetryable }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            },
+            {
+              "id": "severity-check",
+              "leftValue": "={{ $json.error.severity }}",
+              "rightValue": "CRITICAL",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "retry-decision",
+      "name": "Retry Decision",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate retry delay based on error type and attempt count\nconst errorData = $input.all()[0].json;\nconst retryCount = $json.retryCount || 0;\nconst maxRetries = 3;\n\nif (retryCount >= maxRetries) {\n  return { json: { ...errorData, shouldRetry: false, reason: 'Max retries exceeded' } };\n}\n\n// Exponential backoff with jitter\nconst baseDelay = 5000; // 5 seconds\nconst exponentialDelay = baseDelay * Math.pow(2, retryCount);\nconst jitter = Math.random() * 1000; // Random jitter up to 1 second\nconst delay = exponentialDelay + jitter;\n\n// Adjust delay based on error type\nlet adjustedDelay = delay;\nif (errorData.error.type === 'RATE_LIMIT') {\n  adjustedDelay = delay * 2; // Double delay for rate limit errors\n} else if (errorData.error.type === 'TIMEOUT') {\n  adjustedDelay = delay * 1.5; // 50% longer for timeouts\n}\n\nreturn {\n  json: {\n    ...errorData,\n    shouldRetry: true,\n    retryCount: retryCount + 1,\n    retryDelay: Math.ceil(adjustedDelay),\n    nextRetryAt: new Date(Date.now() + Math.ceil(adjustedDelay)).toISOString()\n  }\n};"
+      },
+      "id": "retry-calculator",
+      "name": "Retry Calculator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 200]
+    },
+    {
+      "parameters": {
+        "amount": 30000,
+        "unit": "milliseconds"
+      },
+      "id": "retry-delay",
+      "name": "Retry Delay",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1000, 200]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "url": "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\n  \"text\": \"🚨 Gamma PowerPoint Export Error\",\n  \"attachments\": [\n    {\n      \"color\": \"{{ $json.error.severity === 'CRITICAL' ? 'danger' : $json.error.severity === 'HIGH' ? 'warning' : 'good' }}\",\n      \"fields\": [\n        {\n          \"title\": \"Error ID\",\n          \"value\": \"{{ $json.errorId }}\",\n          \"short\": true\n        },\n        {\n          \"title\": \"Error Type\",\n          \"value\": \"{{ $json.error.type }}\",\n          \"short\": true\n        },\n        {\n          \"title\": \"Severity\",\n          \"value\": \"{{ $json.error.severity }}\",\n          \"short\": true\n        },\n        {\n          \"title\": \"Node\",\n          \"value\": \"{{ $json.error.node }}\",\n          \"short\": true\n        },\n        {\n          \"title\": \"Message\",\n          \"value\": \"{{ $json.error.message }}\",\n          \"short\": false\n        },\n        {\n          \"title\": \"Execution URL\",\n          \"value\": \"{{ $json.execution.url }}\",\n          \"short\": false\n        }\n      ]\n    }\n  ]\n}"
+      },
+      "id": "slack-alert",
+      "name": "Slack Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [800, 400]
+    },
+    {
+      "parameters": {
+        "fromEmail": "errors@company.com",
+        "toEmail": "admin@company.com,support@company.com",
+        "subject": "Gamma Export Error: {{ $json.error.type }} - {{ $json.errorId }}",
+        "text": "={{\n`Gamma PowerPoint Export Error Alert\\n\\n` +\n`Error ID: ${$json.errorId}\\n` +\n`Timestamp: ${$json.timestamp}\\n` +\n`Type: ${$json.error.type}\\n` +\n`Severity: ${$json.error.severity}\\n` +\n`Node: ${$json.error.node}\\n\\n` +\n`Error Message:\\n${$json.error.message}\\n\\n` +\n`Stack Trace:\\n${$json.error.stack}\\n\\n` +\n`Workflow: ${$json.workflow.name} (ID: ${$json.workflow.id})\\n` +\n`Execution URL: ${$json.execution.url}\\n\\n` +\n`Context:\\n${JSON.stringify($json.context, null, 2)}\\n\\n` +\n`Recommendations:\\n${$json.recommendations.join('\\n')}`\n}}",
+        "options": {}
+      },
+      "id": "email-alert",
+      "name": "Email Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1000, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log error to external monitoring system\nconst errorData = $input.all()[0].json;\n\nconst logEntry = {\n  timestamp: errorData.timestamp,\n  service: 'gamma-powerpoint-automation',\n  environment: 'production',\n  level: errorData.error.severity.toLowerCase(),\n  errorId: errorData.errorId,\n  message: errorData.error.message,\n  type: errorData.error.type,\n  node: errorData.error.node,\n  workflow: errorData.workflow,\n  execution: errorData.execution,\n  context: errorData.context,\n  recommendations: errorData.recommendations,\n  metadata: {\n    userAgent: 'n8n-workflow',\n    version: '1.0.0'\n  }\n};\n\n// In a real implementation, you would send this to your monitoring system\n// For example: Datadog, New Relic, Sentry, etc.\n// await sendToMonitoringSystem(logEntry);\n\nconsole.log('Error logged:', JSON.stringify(logEntry, null, 2));\n\nreturn { json: { ...errorData, logged: true, logEntry } };"
+      },
+      "id": "error-logger",
+      "name": "Error Logger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "fileId": "YOUR_ERROR_LOG_SPREADSHEET_ID",
+        "range": "A:L",
+        "values": "={{ [\n  [\n    $json.errorId,\n    $json.timestamp,\n    $json.error.type,\n    $json.error.severity,\n    $json.error.node,\n    $json.error.message.substring(0, 100),\n    $json.workflow.name,\n    $json.execution.url,\n    $json.error.isRetryable,\n    $json.recommendations.join('; ')\n  ]\n] }}",
+        "googleSheets": {
+          "predefinedId": "google-sheets-credentials"
+        }
+      },
+      "id": "spreadsheet-logger",
+      "name": "Log to Spreadsheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"error_handled\",\n  \"errorId\": \"{{ $json.errorId }}\",\n  \"timestamp\": \"{{ $json.timestamp }}\",\n  \"severity\": \"{{ $json.error.severity }}\",\n  \"retryScheduled\": {{ $json.shouldRetry || false }},\n  \"message\": \"Error has been logged and notifications sent\"\n}",
+        "options": {}
+      },
+      "id": "final-response",
+      "name": "Final Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1600, 400]
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Error Analyzer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Analyzer": {
+      "main": [
+        [
+          {
+            "node": "Retry Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Decision": {
+      "main": [
+        [
+          {
+            "node": "Retry Calculator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Calculator": {
+      "main": [
+        [
+          {
+            "node": "Retry Delay",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Alert": {
+      "main": [
+        [
+          {
+            "node": "Email Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Alert": {
+      "main": [
+        [
+          {
+            "node": "Error Logger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Logger": {
+      "main": [
+        [
+          {
+            "node": "Log to Spreadsheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Spreadsheet": {
+      "main": [
+        [
+          {
+            "node": "Final Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "error-handling",
+      "name": "Error Handling"
+    }
+  ]
+}
